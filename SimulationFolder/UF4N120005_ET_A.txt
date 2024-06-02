@@ -1,0 +1,205 @@
+********************************************************************************
+* UnitedSiC G4 1200V-5mohm SiC JFET Spice Circuit Model ET priliminary
+* Copyright 2022 United Silicon Carbide, Inc.
+*
+*
+* The model does not include all possible conditions and effects, 
+* in particular it doesn't include: 
+*	leakage current in blocking state
+*	Drain to source breakdown is notional only
+*
+********************************************************************************
+
+*** UF4N120005 ***
+.subckt UF4N120005 nd ng ns Tj Tc params: Vth=-9
+xj1	nd	ng	ns	Tj Tj jfet_G4_1200V_Ron_ET params: Ron=4.55m Rg=0.8 Rcgd=1 Vth={Vth}
+
+.param Rs1 =	{0.0023538/1.5*14}
+.param Rs2 =	{0.018685/1.5*14}
+.param Rs3 =	{0.0016115/1.5*14}
+.param Rs4 =	{0.023987/1.5*14}
+
+.param Cs1 =	{0.040624*1.5/14}
+.param Cs2 =	{0.17313*1.5/14}
+.param Cs3 =	{1.1858*1.5/14}
+.param Cs4 =	{1.9397*1.5/14}
+
+C11 Tj 0 {Cs1}
+R11 Tj t11 {Rs1}
+C12 t11 0 {Cs2}
+R12 t11 t12 {Rs2}
+C13 t12 0 {Cs3}
+R13 t12 t13 {Rs3}
+C14 t13 0 {Cs4}
+R14 t13 Tc {Rs4}
+
+.ends
+ 
+*** 1200V JFETs ***
+.subckt jfet_G4_1200V_Ron_ET d g s Tj Tj params: Ron=0 Rg=0 Rcgd=0 Vth=-9
+.param Ron1={Ron}
+.param Rg1={Rg}
+.param a= {4.55m / {Ron1}}
+
+X1 di gi s Tj Tj jfet_G4_1200V_ET params: ascale={a} Rcgd={Rcgd} vth27={Vth}
+
+XCgs gi s Cgs_G4_1200V params: acgs={a}
+XCgd gi gir Cgd_G4_1200V params: acgd={a}
+RCgd gir di {Rcgd}
+
+Cgdex gi di {0.001p * {a} }
+Cgsex gi s {0.001p * {a} }
+
+GRg g gi value={if(v(g,gi)>0,v(g,gi)/{Rg1},v(g,gi)/{Rg1})}
+
+V_isense d dis 0
+G_Rd dis di value {v(dis,di)/(4.2m/{a}*(1+4.9e-3*(v(Tj)-27)+4.421e-5*(v(Tj)-27)**2))}
+G_power_channel 0 Tj value {v(di,s)*i(v_isense)}
+G_power_epi 0 Tj value {v(d,di)*i(v_isense)}				
+.ends jfet_G4_1200V_Ron_ET 
+
+*** Shared Subcircuit for 1200V JFETs ET ***
+.subckt jfet_G4_1200V_ET d g s Tj Tj Params: ascale=0 Rcgd=0 vth27=-9
+.param Fc1=0.5
+.param Pb1=3.25
+.param M1=0.5
+.param Vd0=800
+.param Vd0c=800
+.param Vg0=20
+.param gos27={0.910*{ascale}}
+.param gfs27={1100*{ascale}}
+.param f=1.763
+.param vto_tc=-1.626e-3
+.param beta_tce=-0.578
+
+*.func vth(x) {-9-4.065e-3*(x-27)}
+.func vth(x) {{vth27}+{vto_tc}*(x-27)}
+
+.param cgs1=5.73n
+.param cgd1=0.313n
+
+*.func gfs(x) {gfs27*1.01**(-9.77e-2*(x-27)/2)}
+*.func gfs(x) {{gfs27}*1.01**(-9.77e-1*(x-27)/2)}
+
+.func gfs(x) { (( ({f}*gfs27+2*gos27*Vd0/2/vth27 )/2/vth27*1.01**({beta_tce}*(x-27)) )*2*Vth(x)-2*gos27*Vd0/vth(x))/{f}  }
+
+.func bt(x) {({f}*{gfs(x)}+2*{gos27}*{Vd0}/{vth(x)})/2/(-{vth(x)})}
+
+.param lamd27={{gos27}/(bt(27)*{vth(27)}**2)}
+
+.param cgs0={pwr((1+{Vg0}/{Pb1}),{M1})*{cgs1}}
+.param cgd0={pwr((1+{Vd0c}/{Pb1}),{M1})*{cgd1}}
+
+Gchannel d d2 value { if({v(d,d2)>=0},
++ if({v(g,s)}<{vth(v(Tj))},0,{if({v(d,d2)}<{v(g,s)-{vth(v(Tj))}},
++ {{bt(v(Tj))}*(1+{lamd27}*{v(d,d2)})*{v(d,d2)}*{(2*(v(g,s)-{vth(v(Tj))})-v(d,d2))}},
++ {{bt(v(Tj))}*(1+{lamd27}*v(d,d2))*(v(g,s)-{vth(v(Tj))})**2})}),
++ -if({v(g,d)}<{vth(v(Tj))},0,{if({v(d2,d)}<{v(g,d)-{vth(v(Tj))}},
++ {{bt(v(Tj))}*(1+{lamd27}*{v(d2,d)})*{v(d2,d)}*{(2*(v(g,d)-{vth(v(Tj))})-v(d2,d))}},
++ {{bt(v(Tj))}*(1+{lamd27}*v(d2,d))*(v(g,d)-{vth(v(Tj))})**2})})
++ )}
+Rch2 d2 s 1u
+
+G_Cgs g s value {v(gsc)*i(V_gsdvdt)/1e-12}
+
+E_Cgs gsc 0 value {if({v(g,s)<{{Fc1}*{Pb1}}},
++ {{ascale}*{cgs0}*(1-v(g,s)/{Pb1})**(-{M1})},
++ {{ascale}*{cgs0}*(1-{Fc1})**(-1-{M1})*(1-{Fc1}*(1+{M1})+{M1}*v(g,s)/{Pb1})}
++ )}
+R_gsc gsc 0 1e3
+
+E_gsdvdt gsdvdt1 0 value {v(g,s)}
+C_gsdvdt gsdvdt2 gsdvdt1 1e-12
+R_gsdvdt gsdvdt3 gsdvdt2 1e-6
+V_gsdvdt gsdvdt3 0 0
+
+G_Cgd g gr value {v(gdc)*i(V_gddvdt)/1e-12}
+R_Cgd gr d {Rcgd}
+
+E_Cgd gdc 0 value {if({v(g,gr)<{{Fc1}*{Pb1}}},
++ {{ascale}*{cgd0}*(1-v(g,gr)/{Pb1})**(-{M1})},
++ {{ascale}*{cgd0}*(1-{Fc1})**(-1-{M1})*(1-{Fc1}*(1+{M1})+{M1}*v(g,gr)/{Pb1})}
++ )}
+R_gdc gdc 0 1e3
+
+E_gddvdt gddvdt1 0 value {v(g,gr)}
+C_gddvdt gddvdt2 gddvdt1 1e-12
+R_gddvdt gddvdt3 gddvdt2 1e-6
+V_gddvdt gddvdt3 0 0
+
+Dgs g s Dgs_iv 
+Dgd g d Dgd_iv 
+
+Rgs  g s 1Meg
+Rgd  g d 10Meg
+
+.MODEL Dgs_iv D (CJO=0 BV=40 IS=1e-50 ISR=1e-50 Eg=3.5 Rs=0)
+.MODEL Dgd_iv D (CJO=0 BV=1600 IS=1e-50 ISR=1e-50 Eg=3.5 Rs={9.62m/{ascale}})
+
+.ends jfet_G4_1200V_ET
+
+* Cgs network
+.subckt Cgs_G4_1200V g s params: acgs=0
+.param c0=1n
+
+.param vsgmin=-2
+.param vsgmax=15
+.param a1={1.5*12n*{acgs}}
+.param b1=0.1
+
+.func Qgs1(u) {- {a1} / {b1} *(exp(- {b1} *u)-1)}  
+
+.param a2={0*{acgs}}
+.param b2=0.5
+.param c2=8.7
+
+.func Qgs2(u) 
++	{if(abs(u)<{vsgmax},
++	{a2}*u + {a2}*(-{b2})*log(cosh((u-{c2})/-{b2}))
++	-{a2}*(-{b2})*log(cosh(-{c2}/-{b2})), 
++	{a2}*{vsgmax} + {a2}*(-{b2})*log(cosh(({vsgmax}-{c2})/-{b2}))
++	-{a2}*(-{b2})*log(cosh(-{c2}/-{b2})))} 
+
+E1 s m1 value={v(s,g)-Qgs1(limit(v(s,g),-{vsgmax},{vsgmax}))/{c0}}
+C01 m1 g {c0}
+E2 s m2 value={v(s,g)-Qgs2(limit(v(s,g),-{vsgmax},{vsgmax}))/{c0}}
+C02 m2 g {c0}
+
+.ends Cgs_G4_1200V
+
+* Cgd network
+.subckt Cgd_G4_1200V g d params:acgd=0
+
+.param c0=1n
+
+.param a1={1.5*2.5n*{acgd}}
+.param b1=2
+.param c1=11
+.param vdgmax1=50
+
+.func Qgd1(u) 
++	{if(abs(u)<{vdgmax1},
++	{a1}*u + {a1}*(-{b1})*log(cosh((u-{c1})/-{b1}))
++	-{a1}*(-{b1})*log(cosh(-{c1}/-{b1})), 
++	{a1}*{vdgmax1} + {a1}*(-{b1})*log(cosh(({vdgmax1}-{c1})/-{b1}))
++	-{a1}*(-{b1})*log(cosh(-{c1}/-{b1})))} 
+
+.param a2={0*{acgd}}
+.param b2=0.5
+.param c2=6
+.param vdgmax2=15
+
+.func Qgd2(u) 
++	{if(abs(u)<{vdgmax2},
++	(-1)*({a2}*u + {a2}*(-{b2})*log(cosh((u-{c2})/-{b2}))
++	-{a2}*(-{b2})*log(cosh(-{c2}/-{b2}))), 
++	(-1)*({a2}*{vdgmax2} + {a2}*(-{b2})*log(cosh(({vdgmax2}-{c2})/-{b2}))
++	-{a2}*(-{b2})*log(cosh(-{c2}/-{b2}))))}
+E1 d m1 value={v(d,g)-Qgd1(limit(v(d,g),-{vdgmax1},+{vdgmax1}))/{c0}}
+C01 m1 g {c0}
+E2 d m2 value={v(d,g)-Qgd2(limit(v(d,g),-{vdgmax2},+{vdgmax2}))/{c0}}
+C02 m2 g {c0}
+
+.ends Cgd_G4_1200V
+
+*** End of File ***
